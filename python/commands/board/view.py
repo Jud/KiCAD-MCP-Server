@@ -21,6 +21,7 @@ def _svg_to_png(svg_path: str, width: int, height: int) -> Optional[bytes]:
       1. pymupdf (fitz) — bundled MuPDF renderer, pure Python, no system deps
       2. Inkscape CLI — accurate KiCAD SVG rendering
       3. ImageMagick convert — broad availability fallback
+      4. macOS Quick Look (qlmanage) — built-in macOS renderer (needs a GUI session)
     Returns PNG bytes or None if all converters fail.
     """
     import subprocess
@@ -65,6 +66,24 @@ def _svg_to_png(svg_path: str, width: int, height: int) -> Optional[bytes]:
         )
         if r.returncode == 0 and os.path.exists(out_path):
             with open(out_path, "rb") as f:
+                return f.read()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # macOS Quick Look: a built-in renderer, so a Mac without the converters
+    # above can still rasterize with no install. Best-effort — it needs a GUI
+    # (WindowServer) session, so it returns nothing in a headless one and the
+    # caller falls back to inline SVG. Output is a square of side max(w, h).
+    try:
+        ql_dir = tempfile.mkdtemp()
+        r = subprocess.run(
+            ["qlmanage", "-t", "-s", str(max(width, height)), "-o", ql_dir, svg_path],
+            capture_output=True,
+            timeout=60,
+        )
+        ql_png = os.path.join(ql_dir, os.path.basename(svg_path) + ".png")
+        if r.returncode == 0 and os.path.exists(ql_png):
+            with open(ql_png, "rb") as f:
                 return f.read()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
